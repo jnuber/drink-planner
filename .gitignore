@@ -1,0 +1,7 @@
+venv/
+.DS_Store
+pantry.db
+bar.db
+.streamlit/secrets.toml
+__pycache__/
+*.pyc

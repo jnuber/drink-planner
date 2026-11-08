@@ -1,0 +1,8 @@
+streamlit
+google-genai
+supabase
+pandas
+requests
+fpdf2
+zxing-cpp
+pillow-heif

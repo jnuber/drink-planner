@@ -1,0 +1,14 @@
+# .cursorrules
+[environment]
+os = "Fedora Linux"
+desktop = "KDE Plasma"
+architecture = "x86_64"
+python_version = "3.11+"
+
+[guidelines]
+- Use Streamlit for the local web UI (runs fast on desktop browsers).
+- Use a separate Supabase project for bar inventory and saved drink recipes (same table names as the kitchen app, different database).
+- Provide clean, modern UI components with tags for bar items, dietary preferences, and mixology tools (Boston shaker, jigger, muddler, strainers).
+- Support both Gemini API (free tier) and local Ollama endpoint (http://localhost:11434) for AI generation.
+- Keep external Python dependencies light and standard.
+- This is a drink / mixology planner, not a meal planner. Do not mix the two codebases or databases.
