@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -427,17 +427,30 @@ def extract_barcode_with_gemini(image_bytes, mime_type, gemini_key):
     return pick_product_barcode([payload])
 
 
-def lookup_open_food_facts(barcode):
+def _barcode_request_headers():
+    return {"User-Agent": f"DrinkPlanner/{APP_VERSION} (household drink planner)", "Accept": "application/json"}
+
+
+def _barcode_lookup_codes(barcode):
     code = pick_product_barcode([barcode])
     if not code:
-        return None
-    url = f"https://world.openfoodfacts.org/api/v2/product/{code}.json"
-    headers = {"User-Agent": f"DrinkPlanner/{APP_VERSION} (household drink planner)"}
+        return []
+    codes = [code]
+    if len(code) == 12:
+        codes.append("0" + code)
+    elif len(code) == 13 and code.startswith("0") and code[1:] not in codes:
+        codes.append(code[1:])
+    return codes
+
+
+def _http_get_json(url, headers, not_found_ok=False):
     response = None
     last_error = None
     for attempt in range(3):
         try:
             response = requests.get(url, headers=headers, timeout=12)
+            if not_found_ok and response.status_code == 404:
+                return None
             if response.status_code in (429, 502, 503, 504):
                 last_error = requests.HTTPError(
                     f"{response.status_code} Server Error: {response.reason} for url: {url}",
@@ -455,34 +468,116 @@ def lookup_open_food_facts(barcode):
             raise last_error
     if response is None:
         raise last_error or RuntimeError("Barcode lookup did not return a response.")
-    data = response.json() or {}
-    product = data.get("product") if data.get("status") == 1 else None
-    if not product:
-        return {"barcode": code, "name": "", "category": PANTRY_CATEGORIES[0], "quantity": "", "source": "Open Food Facts"}
-    name = (
-        product.get("product_name")
-        or product.get("product_name_en")
-        or product.get("generic_name")
-        or product.get("brands")
-        or ""
-    )
-    hint = " ".join(
-        part
-        for part in (
-            name,
-            product.get("generic_name") or "",
-            product.get("categories") or "",
-            " ".join(product.get("categories_tags") or []),
-        )
-        if part
-    )
-    return {
-        "barcode": code,
-        "name": " ".join(str(name).split()).strip(),
-        "category": guess_pantry_category(hint),
-        "quantity": product.get("quantity") or product.get("product_quantity") or "",
+    return response.json() or {}
+
+
+def lookup_open_food_facts(barcode):
+    codes = _barcode_lookup_codes(barcode)
+    if not codes:
+        return None
+    headers = _barcode_request_headers()
+    empty = {
+        "barcode": codes[0],
+        "name": "",
+        "category": PANTRY_CATEGORIES[0],
+        "quantity": "",
         "source": "Open Food Facts",
     }
+    for code in codes:
+        data = _http_get_json(
+            f"https://world.openfoodfacts.org/api/v2/product/{code}.json",
+            headers,
+            not_found_ok=True,
+        )
+        if not data:
+            continue
+        product = data.get("product") if data.get("status") == 1 else None
+        if not product:
+            continue
+        name = (
+            product.get("product_name")
+            or product.get("product_name_en")
+            or product.get("generic_name")
+            or product.get("brands")
+            or ""
+        )
+        name = " ".join(str(name).split()).strip()
+        if not name:
+            continue
+        hint = " ".join(
+            part
+            for part in (
+                name,
+                product.get("generic_name") or "",
+                product.get("categories") or "",
+                " ".join(product.get("categories_tags") or []),
+            )
+            if part
+        )
+        return {
+            "barcode": codes[0],
+            "name": name,
+            "category": guess_pantry_category(hint),
+            "quantity": product.get("quantity") or product.get("product_quantity") or "",
+            "source": "Open Food Facts",
+        }
+    return empty
+
+
+def lookup_upcitemdb(barcode):
+    codes = _barcode_lookup_codes(barcode)
+    if not codes:
+        return None
+    headers = _barcode_request_headers()
+    data = _http_get_json(
+        f"https://api.upcitemdb.com/prod/trial/lookup?upc={codes[0]}",
+        headers,
+        not_found_ok=True,
+    )
+    items = (data or {}).get("items") or []
+    if not items:
+        return None
+    item = items[0] or {}
+    name = " ".join(str(item.get("title") or item.get("brand") or "").split()).strip()
+    if not name:
+        return None
+    hint = " ".join(
+        part
+        for part in (name, item.get("brand") or "", item.get("category") or "", item.get("description") or "")
+        if part
+    )
+    quantity = item.get("size") or item.get("weight") or ""
+    return {
+        "barcode": codes[0],
+        "name": name,
+        "category": guess_pantry_category(hint),
+        "quantity": quantity,
+        "source": "UPCitemdb",
+    }
+
+
+def lookup_barcode_product(barcode):
+    off_error = None
+    try:
+        product = lookup_open_food_facts(barcode)
+        if product and product.get("name"):
+            return product
+    except Exception as error:
+        off_error = error
+        product = None
+    try:
+        upcitem = lookup_upcitemdb(barcode)
+        if upcitem and upcitem.get("name"):
+            return upcitem
+    except Exception:
+        if off_error:
+            raise off_error
+        raise
+    if product is not None:
+        return product
+    if off_error:
+        raise off_error
+    return None
 
 
 def apply_barcode_product_to_form(product, preferred_system):
@@ -1755,7 +1850,7 @@ Drink Planner turns what you already have at the bar into drink ideas. Work left
 Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `L` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Filter that table by item, category, amount, or unit. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
 
 ### Scan a barcode
-The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from a public product catalog — sometimes you get the brand instead of the product (for example a distillery name instead of “London Dry Gin”). Edit the name before you save.
+The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts first, then UPCitemdb if that catalog has no name, and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from public catalogs — sometimes you get the brand instead of the product. Edit the name before you save. Official GS1 US lookup is a paid business API, so the app does not call gs1us.org.
 
 **On iPhone (best picture):** tap **Take photo or upload**, then **Take Photo** or pick from **Photo Library**. **Take Photo** opens the real iPhone Camera app, so you can zoom, use flash, and tap to focus on the barcode. After the photo is attached, tap **Look up barcode**. The status spinner sits to the right of that button. The scan card stays open after you upload.
 
@@ -1775,7 +1870,7 @@ Favorites are stored in Supabase, one entry per recipe. Sort the list by **name*
 - Be specific in the extra prompt (“stirred, low sugar, no egg white”) so the bartender stays inside your tools and diet.
 - Keep amounts up to date so generated drinks know how much you actually have.
 - If generation fails, confirm the Gemini key or that Ollama is running.
-- If a barcode lookup is slow or fails, try Look up again, or type the numbers. Open Food Facts is sometimes busy.
+- If a barcode lookup is slow or fails, try Look up again, or type the numbers. Open Food Facts or UPCitemdb may be busy.
 """
 
 CHEF_HELP_ICON = (
@@ -2535,12 +2630,12 @@ with tab1:
                     try:
                         with lookup_status:
                             with st.spinner(f"Looking up {barcode}..."):
-                                product = lookup_open_food_facts(barcode)
+                                product = lookup_barcode_product(barcode)
                     except Exception as e:
                         product = None
                         detail = str(e)
                         if any(code in detail for code in ("502", "503", "504", "429")) or "Gateway" in detail:
-                            detail = "Open Food Facts was busy. Try Look up again."
+                            detail = "The barcode catalog was busy. Try Look up again."
                         st.session_state.barcode_lookup_message = (
                             "error",
                             f"Could not look up that barcode: {detail}",
@@ -2549,15 +2644,16 @@ with tab1:
                         product["preferred_system"] = lookup_system
                         st.session_state.barcode_form_pending = product
                         st.session_state.barcode_last_code = product.get("barcode") or barcode
+                        source = product.get("source") or "the catalog"
                         if product.get("name"):
                             st.session_state.barcode_lookup_message = (
                                 "success",
-                                f"Found {product['name']} ({product.get('barcode')}). Check the form, then Add to bar.",
+                                f"Found {product['name']} ({product.get('barcode')}) via {source}. Check the form, then Add to bar.",
                             )
                         else:
                             st.session_state.barcode_lookup_message = (
                                 "warning",
-                                f"Read barcode {barcode}, but Open Food Facts has no product name. Enter a name and add it.",
+                                f"Read barcode {barcode}, but no catalog had a product name. Enter a name and add it.",
                             )
                     st.rerun()
 
