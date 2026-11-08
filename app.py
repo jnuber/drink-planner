@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -2787,6 +2787,12 @@ with tab1:
                     on_select="rerun",
                     selection_mode="single-row",
                     key="pantry_table",
+                    column_config={
+                        "item": st.column_config.TextColumn("Item", width="medium"),
+                        "category": st.column_config.TextColumn("Category", width="medium"),
+                        "amount": st.column_config.TextColumn("Amount", width=72),
+                        "unit": st.column_config.TextColumn("Unit", width=80),
+                    },
                 )
             st.caption("Click a row to edit that item. Filters apply to item, category, amount, and unit.")
 
