@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.2"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -92,7 +92,7 @@ PANTRY_CATEGORIES = [
 ]
 
 MEAL_TYPES = [
-    "After dinner",
+    "After drink",
     "Beer cocktail",
     "Brunch drink",
     "Cocktail",
@@ -165,6 +165,10 @@ def default_unit_for_system(system):
     return "oz" if system == "Imperial" else "ml"
 
 
+def add_item_unit_key(system):
+    return f"add_item_unit_{system or 'Imperial'}"
+
+
 def sync_unit_widget(key, system):
     choices = units_for_system(system)
     default_unit = default_unit_for_system(system)
@@ -175,11 +179,12 @@ def sync_unit_widget(key, system):
 def _on_pref_unit_system_change():
     system = st.session_state.get("pref_unit_system") or "Imperial"
     st.session_state.item_unit_system = system
-    sync_unit_widget("add_item_unit", system)
+    sync_unit_widget(add_item_unit_key(system), system)
 
 
 def _on_item_unit_system_change():
-    sync_unit_widget("add_item_unit", st.session_state.get("item_unit_system") or "Imperial")
+    system = st.session_state.get("item_unit_system") or "Imperial"
+    sync_unit_widget(add_item_unit_key(system), system)
 
 
 def _on_edit_unit_system_change():
@@ -494,7 +499,9 @@ def apply_barcode_product_to_form(product, preferred_system):
     st.session_state.add_item_amount = str(amount)
     choices = units_for_system(system)
     fallback = default_unit_for_system(system)
-    st.session_state.add_item_unit = unit if unit in choices else (fallback if fallback in choices else choices[0])
+    chosen = unit if unit in choices else (fallback if fallback in choices else choices[0])
+    st.session_state.add_item_unit = chosen
+    st.session_state[add_item_unit_key(system)] = chosen
 
 
 NUTRITION_DISCLAIMER = (
@@ -815,7 +822,7 @@ class KitchenRecipePDF(FPDF):
         self.set_text_color(255, 255, 255)
         self.set_font(self.font_family_name, "B", 11)
         self.set_xy(18, 4.5)
-        self.cell(0, 7, _pdf_text("Drink Planner  ·  Household bar copy", self.unicode_ok))
+        self.cell(0, 7, _pdf_text("Drink  ·  Household bar copy", self.unicode_ok))
         self.set_fill_color(232, 214, 196)
         self.rect(0, 16, self.w, 1.2, "F")
         self.set_xy(self.l_margin, 24)
@@ -2428,7 +2435,7 @@ if use_custom_servings:
     )
 st.sidebar.caption(SERVING_DISCLAIMER)
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Drink Planner  ·  v{APP_VERSION}")
+st.sidebar.caption(f"Drink  ·  v{APP_VERSION}")
 
 # --- MAIN NAVIGATION TABS ---
 tab1, tab2, tab3 = st.tabs(["🛒 Bar-Ventory", "🤖 Recipe Generator", "📖 Saved Recipes"])
@@ -2566,12 +2573,10 @@ with tab1:
             on_change=_on_item_unit_system_change,
         )
         unit_choices = units_for_system(unit_system)
-        sync_unit_widget("add_item_unit", unit_system)
+        unit_key = add_item_unit_key(unit_system)
+        sync_unit_widget(unit_key, unit_system)
         if st.session_state.get("add_item_category") not in PANTRY_CATEGORIES:
             st.session_state.add_item_category = PANTRY_CATEGORIES[0]
-        # Keep the unit dropdown outside the form so Metric/Imperial options
-        # refresh immediately. Streamlit form widgets keep their old list until submit.
-        unit = st.selectbox("Unit:", unit_choices, key="add_item_unit")
 
         with st.form("add_item_form"):
             new_item = st.text_input(
@@ -2583,7 +2588,11 @@ with tab1:
                 PANTRY_CATEGORIES,
                 key="add_item_category",
             )
-            amount = st.text_input("Amount:", key="add_item_amount")
+            amount_col, unit_col = st.columns(2)
+            with amount_col:
+                amount = st.text_input("Amount:", key="add_item_amount")
+            with unit_col:
+                unit = st.selectbox("Unit:", unit_choices, key=unit_key)
             submitted = st.form_submit_button("Add to bar")
 
             if submitted and new_item:
