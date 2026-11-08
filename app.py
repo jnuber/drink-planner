@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -1752,7 +1752,7 @@ Drink Planner turns what you already have at the bar into drink ideas. Work left
 - **Servings:** Leave the override off unless you want a custom count. Cocktails default to 1 serving, shots to 12, and punch to 24 servings at 4 oz each.
 
 ### Bar-Ventory
-Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `L` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
+Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `L` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Filter that table by item, category, amount, or unit. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
 
 ### Scan a barcode
 The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from a public product catalog — sometimes you get the brand instead of the product (for example a distillery name instead of “London Dry Gin”). Edit the name before you save.
@@ -2632,25 +2632,77 @@ with tab1:
                 axis=1,
             )
             display["system"] = display["unit_system"].fillna("").replace("", "Imperial")
-            table = st.dataframe(
-                display[["item", "category", "amount", "unit", "system"]],
-                width="stretch",
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="pantry_table",
-            )
-            st.caption("Click a row to edit that item. The row number is not editable.")
+            visible = display[["item", "category", "amount", "unit"]].copy()
+            filter_cols = st.columns(4)
+            with filter_cols[0]:
+                item_filter = st.text_input(
+                    "Filter item",
+                    key="bar_filter_item",
+                    placeholder="Name",
+                )
+            with filter_cols[1]:
+                categories = sorted(
+                    {str(value) for value in visible["category"].dropna() if str(value).strip()},
+                    key=str.casefold,
+                )
+                category_filter = st.multiselect(
+                    "Filter category",
+                    categories,
+                    key="bar_filter_category",
+                )
+            with filter_cols[2]:
+                amount_filter = st.text_input(
+                    "Filter amount",
+                    key="bar_filter_amount",
+                    placeholder="Amount",
+                )
+            with filter_cols[3]:
+                units = sorted(
+                    {str(value) for value in visible["unit"].dropna() if str(value).strip()},
+                    key=str.casefold,
+                )
+                unit_filter = st.multiselect(
+                    "Filter unit",
+                    units,
+                    key="bar_filter_unit",
+                )
+            mask = pd.Series(True, index=display.index)
+            if (item_filter or "").strip():
+                mask &= display["item"].astype(str).str.contains(
+                    item_filter.strip(), case=False, na=False, regex=False
+                )
+            if category_filter:
+                mask &= display["category"].isin(category_filter)
+            if (amount_filter or "").strip():
+                mask &= display["amount"].astype(str).str.contains(
+                    amount_filter.strip(), case=False, na=False, regex=False
+                )
+            if unit_filter:
+                mask &= display["unit"].astype(str).isin(unit_filter)
+            shown = display.loc[mask].reset_index(drop=True)
+            if shown.empty:
+                st.info("No items match those filters.")
+                table = None
+            else:
+                table = st.dataframe(
+                    shown[["item", "category", "amount", "unit"]],
+                    width="stretch",
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="pantry_table",
+                )
+            st.caption("Click a row to edit that item. Filters apply to item, category, amount, and unit.")
 
             selected_rows = []
-            selection = getattr(table, "selection", None)
+            selection = getattr(table, "selection", None) if table is not None else None
             if isinstance(selection, dict):
                 selected_rows = list(selection.get("rows") or [])
             elif selection is not None:
                 selected_rows = list(getattr(selection, "rows", []) or [])
 
             if selected_rows:
-                selected_item = display.iloc[int(selected_rows[0])].to_dict()
+                selected_item = shown.iloc[int(selected_rows[0])].to_dict()
                 selection_token = f"{selected_rows[0]}:{selected_item.get('id')}:{selected_item.get('item')}"
                 if st.session_state.get("pantry_selection_token") != selection_token:
                     st.session_state.pantry_selection_token = selection_token
