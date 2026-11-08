@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -161,6 +161,31 @@ def units_for_system(system):
     return sorted(units, key=str.casefold)
 
 
+def default_unit_for_system(system):
+    return "oz" if system == "Imperial" else "ml"
+
+
+def sync_unit_widget(key, system):
+    choices = units_for_system(system)
+    default_unit = default_unit_for_system(system)
+    if st.session_state.get(key) not in choices:
+        st.session_state[key] = default_unit if default_unit in choices else choices[0]
+
+
+def _on_pref_unit_system_change():
+    system = st.session_state.get("pref_unit_system") or "Imperial"
+    st.session_state.item_unit_system = system
+    sync_unit_widget("add_item_unit", system)
+
+
+def _on_item_unit_system_change():
+    sync_unit_widget("add_item_unit", st.session_state.get("item_unit_system") or "Imperial")
+
+
+def _on_edit_unit_system_change():
+    sync_unit_widget("edit_pantry_unit", st.session_state.get("edit_pantry_system") or "Imperial")
+
+
 def normalize_unit(unit):
     cleaned = " ".join((unit or "").strip().split())
     return UNIT_ALIASES.get(cleaned.lower(), cleaned)
@@ -267,13 +292,13 @@ def parse_off_quantity(text, preferred_system):
     cleaned = re.sub(r"\be\b", " ", str(text or ""), flags=re.I)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:
-        default_unit = "oz" if preferred_system == "Imperial" else "g"
+        default_unit = default_unit_for_system(preferred_system)
         return "1", default_unit, preferred_system
     amount, unit, system = parse_quantity(cleaned)
     unit = normalize_unit(unit.split()[0] if unit else "")
     choices = units_for_system(system)
     if unit not in choices:
-        unit = "oz" if system == "Imperial" else "g"
+        unit = default_unit_for_system(system)
         if unit not in choices:
             unit = choices[0]
     return amount, unit, system
@@ -468,12 +493,39 @@ def apply_barcode_product_to_form(product, preferred_system):
         st.session_state.item_unit_system = system
     st.session_state.add_item_amount = str(amount)
     choices = units_for_system(system)
-    st.session_state.add_item_unit = unit if unit in choices else choices[0]
+    fallback = default_unit_for_system(system)
+    st.session_state.add_item_unit = unit if unit in choices else (fallback if fallback in choices else choices[0])
 
 
 NUTRITION_DISCLAIMER = (
     "Nutrition values and diet labels are estimates only, not lab analysis or medical advice."
 )
+SERVING_DISCLAIMER = (
+    "Unless you set a different serving count, recipes assume cocktails are 1 serving, "
+    "shots are 12 servings, and punch is 24 servings at 4 oz each."
+)
+
+
+def default_servings_for_drink(drink_type):
+    text = (drink_type or "").casefold()
+    if any(word in text for word in ("shot", "shooter")):
+        return 12, "12 servings (shots)"
+    if any(word in text for word in ("punch", "pitcher")):
+        return 24, "24 servings at 4 oz each (punch)"
+    return 1, "1 serving (cocktail)"
+
+
+def resolve_servings(drink_type, override=None):
+    if override:
+        count = int(override)
+        return count, f"{count} servings (you set this)"
+    return default_servings_for_drink(drink_type)
+
+
+def fold_prep_time(prep, cook=None):
+    prep_text = str(prep or "").strip()
+    cook_text = str(cook or "").strip()
+    return prep_text or cook_text
 
 NUTRITION_FIELDS = [
     ("calories", "Calories", ("calories", "kcal", "calorie")),
@@ -566,10 +618,9 @@ def recipe_to_markdown(recipe):
     if recipe.get("markdown"):
         return recipe["markdown"]
     lines = [f"## {recipe.get('title') or 'Recipe'}"]
-    prep = recipe.get("prep_time")
-    cook = recipe.get("cook_time")
-    if prep or cook:
-        lines.append(f"**Prep:** {prep or '—'}  ·  **Cook:** {cook or '—'}")
+    prep = fold_prep_time(recipe.get("prep_time"), recipe.get("cook_time"))
+    if prep:
+        lines.append(f"**Prep:** {prep}")
     diet_tags = extract_diet_tags(recipe)
     if diet_tags:
         lines.append("### Diet")
@@ -579,6 +630,7 @@ def recipe_to_markdown(recipe):
         lines.append("### Nutrition (per serving, estimated)")
         lines.append("**" + nutrition_summary(nutrition).replace(" · ", "**  ·  **") + "**")
     lines.append(f"*{NUTRITION_DISCLAIMER}*")
+    lines.append(f"*{SERVING_DISCLAIMER}*")
     ingredients = recipe.get("ingredients") or []
     if ingredients:
         lines.append("### Ingredients")
@@ -637,10 +689,11 @@ def recipe_parts(recipe):
         diet_tags = diet_tags or parsed.get("diet_tags") or []
         prep = prep or parsed.get("prep") or ""
         cook = cook or parsed.get("cook") or ""
+    prep = fold_prep_time(prep, cook)
     return {
         "title": (recipe.get("title") or "Recipe").strip() or "Recipe",
         "prep": prep,
-        "cook": cook,
+        "cook": "",
         "ingredients": ingredients,
         "instructions": instructions,
         "markdown": markdown,
@@ -656,8 +709,6 @@ def recipe_to_html(recipe, show_title=True):
     meta = []
     if parts["prep"]:
         meta.append(f"Prep {html.escape(parts['prep'])}")
-    if parts["cook"]:
-        meta.append(f"Cook {html.escape(parts['cook'])}")
     meta_html = f'<p class="recipe-meta">{" · ".join(meta)}</p>' if meta else ""
     diet_html = ""
     diet_tags = parts.get("diet_tags") or []
@@ -673,7 +724,10 @@ def recipe_to_html(recipe, show_title=True):
     )
     if chips:
         nutrition_html = f'<div class="recipe-nutrition">{chips}</div>'
-    disclaimer_html = f'<p class="recipe-nutrition-note">{html.escape(NUTRITION_DISCLAIMER)}</p>'
+    disclaimer_html = (
+        f'<p class="recipe-nutrition-note">{html.escape(NUTRITION_DISCLAIMER)}</p>'
+        f'<p class="recipe-nutrition-note">{html.escape(SERVING_DISCLAIMER)}</p>'
+    )
     columns = []
     if parts["ingredients"]:
         items = "".join(f"<li>{html.escape(item)}</li>" for item in parts["ingredients"])
@@ -832,8 +886,6 @@ def build_recipes_pdf(recipes):
         meta = []
         if parts["prep"]:
             meta.append(f"Prep {parts['prep']}")
-        if parts["cook"]:
-            meta.append(f"Cook {parts['cook']}")
         if meta:
             pdf.set_font(family, "B", 11)
             pdf.set_text_color(196, 92, 38)
@@ -857,6 +909,8 @@ def build_recipes_pdf(recipes):
         pdf.set_font(family, "", 8)
         pdf.set_text_color(138, 112, 96)
         pdf.multi_cell(0, 4, _pdf_text(NUTRITION_DISCLAIMER, unicode_ok))
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 4, _pdf_text(SERVING_DISCLAIMER, unicode_ok))
         pdf.set_text_color(61, 43, 31)
         if parts.get("pantry"):
             pdf.set_x(pdf.l_margin)
@@ -949,6 +1003,8 @@ def parse_recipe_markdown(text):
                 parsed["prep"] = prep.group(1).strip(" ·|-")
             if cook:
                 parsed["cook"] = cook.group(1).strip(" ·|-")
+            parsed["prep"] = fold_prep_time(parsed["prep"], parsed["cook"])
+            parsed["cook"] = ""
             continue
         item = re.sub(r"^[-*•]\s+", "", stripped)
         item = re.sub(r"^\d+[.)]\s+", "", item)
@@ -1213,8 +1269,11 @@ def parse_generated_recipes(raw_text):
                     continue
                 recipe = {
                     "title": (item.get("title") or f"Generated Recipe {index}").strip()[:120],
-                    "prep_time": item.get("prep_time") or item.get("prepTime"),
-                    "cook_time": item.get("cook_time") or item.get("cookTime"),
+                    "prep_time": fold_prep_time(
+                        item.get("prep_time") or item.get("prepTime"),
+                        item.get("cook_time") or item.get("cookTime"),
+                    ),
+                    "cook_time": "",
                     "ingredients": item.get("ingredients") or [],
                     "instructions": item.get("instructions") or item.get("steps") or [],
                     "nutrition": extract_nutrition(item),
@@ -1229,24 +1288,28 @@ def parse_generated_recipes(raw_text):
     return split_markdown_recipes(text)
 
 
-def build_recipe_prompt(meal_type, pantry_items, appliances, dietary_restrictions, servings, additional_notes):
+def build_recipe_prompt(meal_type, pantry_items, appliances, dietary_restrictions, servings, additional_notes, serving_note=""):
     notes = (additional_notes or "").strip() or "None"
     appliance_text = ", ".join(appliances) or "Boston shaker, Jigger"
     diet_text = ", ".join(dietary_restrictions) or "None"
     pantry_text = ", ".join(pantry_items)
+    serving_note = serving_note or f"{servings} servings"
     return f"""Write {RECIPE_SUGGESTION_COUNT} short {meal_type} drink recipes from this home bar.
 
 Drink type: {meal_type}
 Bar stock (prefer these; amounts shown): {pantry_text}
 Bar tools and mixology gear: {appliance_text}
 Diet: {diet_text}
-Servings: {servings}
+Servings: {serving_note}
+Serving rule: {SERVING_DISCLAIMER}
 Extra: {notes}
 
 Rules:
 - JSON array only. No markdown, no intro, no trailing notes.
-- Each object: title, prep_time, cook_time, ingredients (string[]), instructions (string[]), nutrition (object), diet_tags (string[]).
-- nutrition is per serving for {servings} servings, estimated: calories (kcal), protein, fat, saturated_fat, carbs, fiber, sugar, sodium. Short values like "28 g" or "420 mg".
+- Each object: title, prep_time, ingredients (string[]), instructions (string[]), nutrition (object), diet_tags (string[]).
+- prep_time is mix/build time only. Do not include cook_time.
+- Scale ingredients to {serving_note}. For punch, each serving is 4 oz unless the user overrode the count.
+- nutrition is per serving for this batch, estimated: calories (kcal), protein, fat, saturated_fat, carbs, fiber, sugar, sodium. Short values like "28 g" or "420 mg".
 - diet_tags: 1 to 3 labels this drink fits or leans toward (e.g. Low-Sugar, Vegan, Gluten-Free). Prefer household Diet when it matches. Do not claim a certified medical diet.
 - Use bar-stock items plus ice, water, simple garnish if needed. Mark bar stock vs staple.
 - At most {RECIPE_MAX_STEPS} instruction steps. Each step is one short sentence.
@@ -1678,10 +1741,11 @@ Drink Planner turns what you already have at the bar into drink ideas. Work left
 ### Sidebar: AI and household setup
 - **AI engine:** Google Gemini uses the key in Streamlit secrets. Local Ollama talks to a model on port 11434.
 - **Bar tools and diets:** Select the mixology gear you have. Open **Add / remove custom options** to type extras (for example a smoking gun or a Jain diet). Dietary lists stay the same as the kitchen app.
-- **Measurement system:** Imperial or Metric is the default for new bar items. You can still change units on each item.
+- **Measurement system:** Imperial or Metric sets the unit list for new bar items (`oz` / `fl oz` versus `ml` / `L`). You can still change the system on the add form.
+- **Servings:** Leave the override off unless you want a custom count. Cocktails default to 1 serving, shots to 12, and punch to 24 servings at 4 oz each.
 
-### Bar Inventory
-Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
+### Bar-Ventory
+Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `L` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
 
 ### Scan a barcode
 The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from a public product catalog — sometimes you get the brand instead of the product (for example a distillery name instead of “London Dry Gin”). Edit the name before you save.
@@ -1693,7 +1757,7 @@ The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts a
 **Type the digits:** if the photo will not read, enter the numbers under the barcode and Look up. Hold the bottle or can so the bars are sharp, well lit, and fill most of the frame.
 
 ### Recipe Generator
-Choose a **drink type** (Cocktail, Mocktail, Tiki, or type your own). Then pick bar items to mix with — nothing is pre-selected. Add an optional craving, then generate ideas. The bartender looks for that drink type using what you chose and usually returns **two short** recipes (capped length so it stays quick).
+Choose a **drink type** (Cocktail, Mocktail, Tiki, or type your own). Then pick bar items to mix with — nothing is pre-selected. Add an optional craving, then generate ideas. The bartender looks for that drink type using what you chose and usually returns **two short** recipes (capped length so it stays quick). Recipes show **Prep** time only (mix/build), not cook time. Serving counts follow the cocktail / shot / punch defaults unless you set your own.
 
 Each recipe has its own card, including estimated per-serving calories, protein, fat, carbs, and sodium, plus diet labels it leans toward. Those numbers and labels are AI estimates, not lab values or medical advice. Check the ones you want, then **Save selected**. **Save all separately** stores every suggestion as its own Household Favorite. Uncheck a card if you only want the other one. **Download pretty PDF** saves a print-ready bar copy of every generated recipe. **Grocery list** compares the recipe to your bar: items you already have are checked off, and the rest get a shopping checkbox. You can save, download/print, or email that list.
 
@@ -1945,15 +2009,19 @@ def edit_inventory_dialog():
     st.caption("Update any field except the table index, then save.")
     name = st.text_input("Ingredient Name:", key="edit_pantry_name")
     category = st.selectbox("Category:", PANTRY_CATEGORIES, key="edit_pantry_category")
-    unit_system = st.radio("Unit system:", ["Imperial", "Metric"], horizontal=True, key="edit_pantry_system")
+    unit_system = st.radio(
+        "Unit system:",
+        ["Imperial", "Metric"],
+        horizontal=True,
+        key="edit_pantry_system",
+        on_change=_on_edit_unit_system_change,
+    )
     amount_col, unit_col = st.columns(2)
     with amount_col:
         amount = st.text_input("Amount:", key="edit_pantry_amount")
     with unit_col:
         unit_choices = units_for_system(unit_system)
-        current_unit = st.session_state.get("edit_pantry_unit")
-        if current_unit not in unit_choices:
-            st.session_state.edit_pantry_unit = unit_choices[0]
+        sync_unit_widget("edit_pantry_unit", unit_system)
         unit = st.selectbox("Unit:", unit_choices, key="edit_pantry_unit")
 
     save_col, cancel_col = st.columns(2)
@@ -2340,18 +2408,34 @@ preferred_system = st.sidebar.radio(
     ["Imperial", "Metric"],
     horizontal=True,
     key="pref_unit_system",
-    help="Used as the default for new bar items. You can still pick units per item.",
+    help="Sets the unit list for new bar items. Metric shows ml, L, g, kg.",
+    on_change=_on_pref_unit_system_change,
 )
-servings = st.sidebar.number_input("Number of Servings:", min_value=1, max_value=12, value=2)
+use_custom_servings = st.sidebar.checkbox(
+    "Set serving count myself",
+    value=False,
+    key="use_custom_servings",
+    help=SERVING_DISCLAIMER,
+)
+servings_override = None
+if use_custom_servings:
+    servings_override = st.sidebar.number_input(
+        "Number of Servings:",
+        min_value=1,
+        max_value=48,
+        value=1,
+        key="servings_override",
+    )
+st.sidebar.caption(SERVING_DISCLAIMER)
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Drink Planner  ·  v{APP_VERSION}")
 
 # --- MAIN NAVIGATION TABS ---
-tab1, tab2, tab3 = st.tabs(["🛒 Bar Inventory", "🤖 Recipe Generator", "📖 Saved Recipes"])
+tab1, tab2, tab3 = st.tabs(["🛒 Bar-Ventory", "🤖 Recipe Generator", "📖 Saved Recipes"])
 
-# --- TAB 1: BAR INVENTORY ---
+# --- TAB 1: BAR-VENTORY ---
 with tab1:
-    st.header("Current Bar Inventory")
+    st.header("Current Bar-Ventory")
     if st.session_state.pop("clear_add_item_form", False):
         st.session_state.add_item_name = ""
         st.session_state.add_item_amount = "1"
@@ -2479,15 +2563,15 @@ with tab1:
             ["Imperial", "Metric"],
             key="item_unit_system",
             horizontal=True,
+            on_change=_on_item_unit_system_change,
         )
         unit_choices = units_for_system(unit_system)
-        default_unit = "oz" if unit_system == "Imperial" else "g"
-        if default_unit not in unit_choices:
-            default_unit = unit_choices[0]
-        if st.session_state.get("add_item_unit") not in unit_choices:
-            st.session_state.add_item_unit = default_unit
+        sync_unit_widget("add_item_unit", unit_system)
         if st.session_state.get("add_item_category") not in PANTRY_CATEGORIES:
             st.session_state.add_item_category = PANTRY_CATEGORIES[0]
+        # Keep the unit dropdown outside the form so Metric/Imperial options
+        # refresh immediately. Streamlit form widgets keep their old list until submit.
+        unit = st.selectbox("Unit:", unit_choices, key="add_item_unit")
 
         with st.form("add_item_form"):
             new_item = st.text_input(
@@ -2499,11 +2583,7 @@ with tab1:
                 PANTRY_CATEGORIES,
                 key="add_item_category",
             )
-            amount_col, unit_col = st.columns(2)
-            with amount_col:
-                amount = st.text_input("Amount:", key="add_item_amount")
-            with unit_col:
-                unit = st.selectbox("Unit:", unit_choices, key="add_item_unit")
+            amount = st.text_input("Amount:", key="add_item_amount")
             submitted = st.form_submit_button("Add to bar")
 
             if submitted and new_item:
@@ -2629,6 +2709,14 @@ with tab2:
     additional_notes = st.text_input(
         "Extra craving or prompt (e.g., 'stirred', 'no egg white', 'tiki spice'):"
     )
+    servings, serving_note = resolve_servings(
+        meal_type,
+        servings_override if use_custom_servings else None,
+    )
+    if meal_type:
+        st.caption(f"This batch: **{serving_note}**. {SERVING_DISCLAIMER}")
+    else:
+        st.caption(SERVING_DISCLAIMER)
 
     if st.button("✨ Generate Recipe Ideas", type="primary"):
         if not meal_type:
@@ -2646,6 +2734,7 @@ with tab2:
                 dietary_restrictions,
                 servings,
                 additional_notes,
+                serving_note,
             )
             with st.spinner("Bartender AI is mixing recipes..."):
                 try:
