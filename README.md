@@ -17,4 +17,4 @@ SUPABASE_KEY = "..."
 4. `python -m venv venv && source venv/bin/activate && pip install -r requirements.txt`
 5. `streamlit run app.py` or `./run.sh`
 
-Version: **1.1.5**
+Version: **1.1.6**

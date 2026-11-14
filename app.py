@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 
 DEFAULT_APPLIANCES = [
     "Bar spoon",
@@ -910,26 +910,26 @@ class KitchenRecipePDF(FPDF):
         self.set_margins(18, 26, 18)
 
     def header(self):
-        self.set_fill_color(255, 250, 243)
+        self.set_fill_color(244, 248, 252)
         self.rect(0, 0, self.w, self.h, "F")
-        self.set_fill_color(196, 92, 38)
+        self.set_fill_color(29, 111, 214)
         self.rect(0, 0, self.w, 16, "F")
         self.set_text_color(255, 255, 255)
         self.set_font(self.font_family_name, "B", 11)
         self.set_xy(18, 4.5)
         self.cell(0, 7, _pdf_text("Drink  ·  Household bar copy", self.unicode_ok))
-        self.set_fill_color(232, 214, 196)
+        self.set_fill_color(212, 228, 245)
         self.rect(0, 16, self.w, 1.2, "F")
         self.set_xy(self.l_margin, 24)
-        self.set_text_color(61, 43, 31)
+        self.set_text_color(22, 50, 74)
 
     def footer(self):
         self.set_y(-16)
-        self.set_draw_color(232, 214, 196)
+        self.set_draw_color(212, 228, 245)
         self.set_line_width(0.4)
         self.line(18, self.get_y(), self.w - 18, self.get_y())
         self.set_font(self.font_family_name, "", 8)
-        self.set_text_color(138, 112, 96)
+        self.set_text_color(92, 115, 136)
         self.cell(
             0,
             10,
@@ -942,15 +942,15 @@ def _write_pdf_section_label(pdf, label):
     pdf.ln(4)
     pdf.set_x(pdf.l_margin)
     pdf.set_font(pdf.font_family_name, "B", 10)
-    pdf.set_text_color(196, 92, 38)
+    pdf.set_text_color(29, 111, 214)
     pdf.cell(0, 6, label.upper())
     pdf.ln(2)
     y = pdf.get_y()
-    pdf.set_draw_color(232, 214, 196)
+    pdf.set_draw_color(212, 228, 245)
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(4)
     pdf.set_xy(pdf.l_margin, pdf.get_y())
-    pdf.set_text_color(61, 43, 31)
+    pdf.set_text_color(22, 50, 74)
     pdf.set_font(pdf.font_family_name, "", 11)
 
 
@@ -958,10 +958,10 @@ def _write_pdf_hanging_line(pdf, marker, text, marker_w, line_h, unicode_ok):
     pdf.set_x(pdf.l_margin)
     family = pdf.font_family_name
     pdf.set_font(family, "B", 11)
-    pdf.set_text_color(196, 92, 38)
+    pdf.set_text_color(29, 111, 214)
     pdf.cell(marker_w, line_h, _pdf_text(marker, unicode_ok))
     pdf.set_font(family, "", 11)
-    pdf.set_text_color(61, 43, 31)
+    pdf.set_text_color(22, 50, 74)
     remain = max(pdf.w - pdf.r_margin - pdf.get_x(), 20)
     pdf.multi_cell(remain, line_h, _pdf_text(text, unicode_ok))
     pdf.set_x(pdf.l_margin)
@@ -981,7 +981,7 @@ def build_recipes_pdf(recipes):
         pdf.add_page()
         parts = recipe_parts(recipe)
         pdf.set_xy(pdf.l_margin, pdf.get_y())
-        pdf.set_text_color(61, 43, 31)
+        pdf.set_text_color(22, 50, 74)
         pdf.set_font(family, "B", 20)
         pdf.multi_cell(0, 9, _pdf_text(parts["title"], unicode_ok))
         pdf.ln(1)
@@ -990,36 +990,36 @@ def build_recipes_pdf(recipes):
             meta.append(f"Prep {parts['prep']}")
         if meta:
             pdf.set_font(family, "B", 11)
-            pdf.set_text_color(196, 92, 38)
+            pdf.set_text_color(29, 111, 214)
             pdf.multi_cell(0, 7, _pdf_text("  ·  ".join(meta), unicode_ok))
-            pdf.set_text_color(61, 43, 31)
+            pdf.set_text_color(22, 50, 74)
         nutrition_line = nutrition_summary(parts.get("nutrition"))
         if nutrition_line:
             pdf.set_x(pdf.l_margin)
             pdf.set_font(family, "", 9)
-            pdf.set_text_color(61, 43, 31)
+            pdf.set_text_color(22, 50, 74)
             pdf.multi_cell(0, 5, _pdf_text(nutrition_line, unicode_ok))
-            pdf.set_text_color(61, 43, 31)
+            pdf.set_text_color(22, 50, 74)
         diet_tags = parts.get("diet_tags") or []
         if diet_tags:
             pdf.set_x(pdf.l_margin)
             pdf.set_font(family, "B", 9)
-            pdf.set_text_color(196, 92, 38)
+            pdf.set_text_color(29, 111, 214)
             pdf.multi_cell(0, 5, _pdf_text("Leans toward: " + " · ".join(diet_tags), unicode_ok))
-            pdf.set_text_color(61, 43, 31)
+            pdf.set_text_color(22, 50, 74)
         pdf.set_x(pdf.l_margin)
         pdf.set_font(family, "", 8)
-        pdf.set_text_color(138, 112, 96)
+        pdf.set_text_color(92, 115, 136)
         pdf.multi_cell(0, 4, _pdf_text(NUTRITION_DISCLAIMER, unicode_ok))
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(0, 4, _pdf_text(SERVING_DISCLAIMER, unicode_ok))
-        pdf.set_text_color(61, 43, 31)
+        pdf.set_text_color(22, 50, 74)
         if parts.get("pantry"):
             pdf.set_x(pdf.l_margin)
             pdf.set_font(family, "", 9)
-            pdf.set_text_color(138, 112, 96)
+            pdf.set_text_color(92, 115, 136)
             pdf.multi_cell(0, 5, _pdf_text(f"Bar stock used: {parts['pantry']}", unicode_ok))
-            pdf.set_text_color(61, 43, 31)
+            pdf.set_text_color(22, 50, 74)
 
         if parts["ingredients"]:
             _write_pdf_section_label(pdf, "Ingredients")
@@ -1756,7 +1756,7 @@ def render_star_rating(rating, size="1.7rem"):
     for index in range(1, 6):
         filled = index <= parsed
         glyph = "★" if filled else "☆"
-        color = "#e0b000" if filled else "#c5b8a8"
+        color = "#e0b000" if filled else "#b7c6d6"
         stars.append(
             f"<span style='color:{color};font-size:{size};line-height:1;'>{glyph}</span>"
         )
@@ -1850,7 +1850,7 @@ Drink Planner turns what you already have at the bar into drink ideas. Work left
 Add an ingredient name, category, amount, and unit. Choosing **Imperial** or **Metric** on the item switches the unit list (`oz` / `fl oz` / `dash` versus `ml` / `L` / `g`). Click a row in **Items on Hand** to edit any field except the row number, then save. Filter that table by item, category, amount, or unit. Adding an existing name also updates that item. Use **Delete selected item** to remove something you used up.
 
 ### Scan a barcode
-The burnt-orange **Scan a barcode** card looks up a UPC/EAN in Open Food Facts first, then UPCitemdb if that catalog has no name, and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from public catalogs — sometimes you get the brand instead of the product. Edit the name before you save. Official GS1 US lookup is a paid business API, so the app does not call gs1us.org.
+The blue **Scan a barcode** card looks up a UPC/EAN in Open Food Facts first, then UPCitemdb if that catalog has no name, and fills the add form. Check the name, category, and amount, then **Add to bar**. Names come from public catalogs — sometimes you get the brand instead of the product. Edit the name before you save. Official GS1 US lookup is a paid business API, so the app does not call gs1us.org.
 
 **On iPhone (best picture):** tap **Take photo or upload**, then **Take Photo** or pick from **Photo Library**. **Take Photo** opens the real iPhone Camera app, so you can zoom, use flash, and tap to focus on the barcode. After the photo is attached, tap **Look up barcode**. The status spinner sits to the right of that button. The scan card stays open after you upload.
 
@@ -1876,11 +1876,11 @@ Favorites are stored in Supabase, one entry per recipe. Sort the list by **name*
 CHEF_HELP_ICON = (
     "data:image/svg+xml,"
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
-    "%3Cpath d='M12 12h40L34 36v12h10v4H20v-4h10V36L12 12z' fill='%23fffaf3' "
-    "stroke='%233d2b1f' stroke-width='2.2' stroke-linejoin='round'/%3E"
-    "%3Cellipse cx='32' cy='16' rx='16' ry='7' fill='%23c45c26'/%3E"
+    "%3Cpath d='M12 12h40L34 36v12h10v4H20v-4h10V36L12 12z' fill='%23f4f8fc' "
+    "stroke='%2316324a' stroke-width='2.2' stroke-linejoin='round'/%3E"
+    "%3Cellipse cx='32' cy='16' rx='16' ry='7' fill='%231d6fd6'/%3E"
     "%3Ctext x='32' y='20.5' text-anchor='middle' font-family='Georgia,Times,serif' font-size='12' "
-    "font-weight='700' fill='%23fffaf3'%3E?%3C/text%3E"
+    "font-weight='700' fill='%23f4f8fc'%3E?%3C/text%3E"
     "%3C/svg%3E"
 )
 
@@ -1897,13 +1897,13 @@ st.markdown(
         min-height: 56px !important;
         border-radius: 50% !important;
         padding: 0 !important;
-        border: 1px solid rgba(61, 43, 31, 0.18) !important;
-        background: #fffaf3 url("{CHEF_HELP_ICON}") center / 42px 42px no-repeat !important;
-        box-shadow: 0 4px 14px rgba(61, 43, 31, 0.12);
+        border: 1px solid rgba(22, 50, 74, 0.18) !important;
+        background: #f4f8fc url("{CHEF_HELP_ICON}") center / 42px 42px no-repeat !important;
+        box-shadow: 0 4px 14px rgba(22, 50, 74, 0.12);
       }}
       .st-key-chef_help_corner button:hover {{
         transform: scale(1.05);
-        box-shadow: 0 6px 16px rgba(61, 43, 31, 0.18);
+        box-shadow: 0 6px 16px rgba(22, 50, 74, 0.18);
       }}
       .st-key-chef_help_corner button p,
       .st-key-chef_help_corner button span {{
@@ -1911,38 +1911,38 @@ st.markdown(
         color: transparent !important;
       }}
       .st-key-barcode_scan_card [data-testid="stExpander"] {{
-        background: linear-gradient(180deg, #d36a2d 0%, #c45c26 42%, #9a4018 100%);
-        border: 1px solid #7a3212 !important;
+        background: linear-gradient(180deg, #3d8eef 0%, #1d6fd6 42%, #1456a8 100%);
+        border: 1px solid #0e3f7a !important;
         border-radius: 16px !important;
-        box-shadow: 0 8px 22px rgba(61, 43, 31, 0.2);
+        box-shadow: 0 8px 22px rgba(22, 50, 74, 0.2);
         overflow: hidden;
       }}
       .st-key-barcode_scan_card [data-testid="stExpander"] details {{
         background: transparent !important;
       }}
       .st-key-barcode_scan_card [data-testid="stExpander"] summary {{
-        background: rgba(61, 43, 31, 0.28) !important;
+        background: rgba(14, 63, 122, 0.28) !important;
       }}
       .st-key-barcode_scan_card [data-testid="stExpander"] summary,
       .st-key-barcode_scan_card [data-testid="stExpander"] summary p,
       .st-key-barcode_scan_card [data-testid="stExpander"] summary span {{
-        color: #fffaf3 !important;
+        color: #f4f8fc !important;
         font-weight: 700 !important;
       }}
       .st-key-barcode_scan_card [data-testid="stCaptionContainer"] p,
       .st-key-barcode_scan_card [data-testid="stMarkdown"] p,
       .st-key-barcode_scan_card label,
       .st-key-barcode_scan_card [data-testid="stWidgetLabel"] p {{
-        color: #fff6ea !important;
+        color: #eef6ff !important;
       }}
       .st-key-barcode_scan_card [data-testid="stTextInput"] input {{
-        background: #fffaf3 !important;
-        color: #3d2b1f !important;
+        background: #f4f8fc !important;
+        color: #16324a !important;
       }}
       .st-key-barcode_scan_card button {{
-        background: #fffaf3 !important;
-        color: #c45c26 !important;
-        border: 1px solid #f0dcc8 !important;
+        background: #f4f8fc !important;
+        color: #1d6fd6 !important;
+        border: 1px solid #d4e4f5 !important;
         font-weight: 700 !important;
       }}
       .st-key-barcode_lookup_status [data-testid="stSpinner"] {{
@@ -1951,7 +1951,7 @@ st.markdown(
       }}
       .st-key-barcode_lookup_status [data-testid="stSpinner"] span,
       .st-key-barcode_lookup_status p {{
-        color: #fffaf3 !important;
+        color: #f4f8fc !important;
       }}
       h1 {{
         font-size: 1.45rem !important;
@@ -1976,22 +1976,22 @@ st.markdown(
         margin: 0.15rem 0 0.4rem !important;
       }}
       .recipe-sheet {{
-        background: #fffaf3;
-        border: 1px solid rgba(61, 43, 31, 0.12);
+        background: #f7fbff;
+        border: 1px solid rgba(22, 50, 74, 0.12);
         border-radius: 16px;
         padding: 1.15rem 1.3rem 1.2rem;
         margin: 0.15rem 0 0.55rem;
-        box-shadow: 0 8px 24px rgba(61, 43, 31, 0.08);
+        box-shadow: 0 8px 24px rgba(22, 50, 74, 0.08);
       }}
       .recipe-sheet h2 {{
         font-family: Georgia, "Times New Roman", serif;
-        color: #3d2b1f;
+        color: #16324a;
         margin: 0 0 0.3rem;
         font-size: 1.42rem;
         line-height: 1.25;
       }}
       .recipe-meta {{
-        color: #c45c26;
+        color: #1d6fd6;
         font-weight: 600;
         letter-spacing: 0.02em;
         margin: 0 0 0.85rem;
@@ -2002,13 +2002,13 @@ st.markdown(
         gap: 0.35rem 0.75rem;
         margin: 0 0 0.35rem;
         padding: 0.45rem 0.65rem;
-        background: rgba(196, 92, 38, 0.08);
+        background: rgba(29, 111, 214, 0.08);
         border-radius: 10px;
-        color: #3d2b1f;
+        color: #16324a;
         font-size: 0.86rem;
       }}
       .recipe-nutrition strong {{
-        color: #c45c26;
+        color: #1d6fd6;
         font-weight: 650;
         margin-right: 0.15rem;
       }}
@@ -2019,22 +2019,22 @@ st.markdown(
         gap: 0.35rem;
         margin: 0 0 0.45rem;
         font-size: 0.82rem;
-        color: #3d2b1f;
+        color: #16324a;
       }}
       .recipe-diet strong {{
-        color: #c45c26;
+        color: #1d6fd6;
         margin-right: 0.2rem;
       }}
       .recipe-diet span {{
         background: #fff;
-        border: 1px solid #e8d6c4;
+        border: 1px solid #d4e4f5;
         border-radius: 999px;
         padding: 0.12rem 0.55rem;
       }}
       .recipe-nutrition-note {{
         margin: 0 0 0.85rem;
         font-size: 0.75rem;
-        color: #8a7060;
+        color: #5c7388;
       }}
       [data-testid="stCameraInput"] video,
       [data-testid="stCameraInput"] img {{
@@ -2051,16 +2051,16 @@ st.markdown(
         font-size: 0.76rem;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-        color: #c45c26;
+        color: #1d6fd6;
         margin: 0 0 0.4rem;
-        border-bottom: 1px solid #e8d6c4;
+        border-bottom: 1px solid #d4e4f5;
         padding-bottom: 0.22rem;
       }}
       .recipe-sheet ul,
       .recipe-sheet ol {{
         margin: 0;
         padding-left: 1.15rem;
-        color: #3d2b1f;
+        color: #16324a;
       }}
       .recipe-sheet li {{
         margin: 0.28rem 0;

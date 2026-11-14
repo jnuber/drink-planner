@@ -1,4 +1,5 @@
 venv/
+myenv/
 .DS_Store
 pantry.db
 bar.db
